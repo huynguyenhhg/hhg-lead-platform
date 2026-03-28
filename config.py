@@ -24,10 +24,10 @@ def get_service_account_info():
     
     # Ưu tiên 3: Dùng file mặc định (cho local development)
     # ✅ CÁCH ĐÚNG - dùng os.path.join
-    default_file = os.path.join(BASE_DIR, "hhg-ads-0fecebcf627f.json")
-    if os.path.exists(default_file):
-        with open(default_file, 'r') as f:
-            return json.load(f)
+    # default_file = os.path.join(BASE_DIR, "hhg-ads-0fecebcf627f.json")
+    # if os.path.exists(default_file):
+    #     with open(default_file, 'r') as f:
+    #         return json.load(f)
     
     return None
     
