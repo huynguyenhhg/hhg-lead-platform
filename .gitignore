@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+.env
+*.egg-info/
+dist/
+build/
+
+# Streamlit secrets - QUAN TRỌNG
+.streamlit/secrets.toml
+
+# Data files
+data/
+*.json
+!requirements.txt
+
+# Excel exports
+*.xlsx
+*.csv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Service account - QUAN TRỌNG: KHÔNG UPLOAD
+*.json
+!requirements.txt
+
+# Temp files
+temp/
+tmp/
