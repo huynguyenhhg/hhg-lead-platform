@@ -23,7 +23,7 @@ def get_service_account_info():
             return json.load(f)
     
     # Ưu tiên 3: Dùng file mặc định (cho local development)
-    default_file = r"D:\HHG\hhg-ads-0fecebcf627f.json"
+    default_file = "D:\\HHG\\hhg-ads-0fecebcf627f.json"
     if os.path.exists(default_file):
         with open(default_file, 'r') as f:
             return json.load(f)
