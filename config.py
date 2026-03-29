@@ -21,20 +21,30 @@ os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(TEMP_DIR, exist_ok=True)
 
 # ===== GOOGLE CLOUD CONFIGURATION - SAU KHI CÓ BASE_DIR =====
+@st.cache_resource
 def get_service_account_info():
-    if hasattr(st, 'secrets') and 'gcp_service_account' in st.secrets:
-        return st.secrets['gcp_service_account']
+    """Load service account info once and cache forever"""
     
-    service_account_file = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
-    if service_account_file and os.path.exists(service_account_file):
-        with open(service_account_file, 'r') as f:
-            return json.load(f)
-    
+    # Priority 1: Local file
     default_file = os.path.join(BASE_DIR, "hhg-ads-0fecebcf627f.json")
     if os.path.exists(default_file):
         with open(default_file, 'r') as f:
+            st.toast("📁 Loading credentials from local file (cached after first load)")
             return json.load(f)
     
+    # Priority 2: Streamlit secrets
+    if hasattr(st, 'secrets') and 'gcp_service_account' in st.secrets:
+        st.toast("🔐 Loading credentials from Streamlit secrets (cached)")
+        return st.secrets['gcp_service_account']
+    
+    # Priority 3: GOOGLE_APPLICATION_CREDENTIALS env var
+    service_account_file = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
+    if service_account_file and os.path.exists(service_account_file):
+        with open(service_account_file, 'r') as f:
+            st.toast(f"📄 Loading credentials from {service_account_file} (cached)")
+            return json.load(f)
+    
+    st.error("⚠️ No credentials found!")
     return None
 
 def get_project_id():
@@ -42,34 +52,6 @@ def get_project_id():
         return st.secrets['gcp_project_id']
     return os.getenv('GCP_PROJECT_ID', 'hhg-client')
 
-# ===== DIRECTORY CONFIGURATION - HỖ TRỢ CLOUD =====
-def get_base_dir():
-    """
-    Lấy thư mục gốc của ứng dụng
-    - Trên Cloud: thư mục hiện tại
-    - Local: D:\HHG\UI
-    """
-    # Nếu đang chạy trên Streamlit Cloud
-    if hasattr(st, 'secrets'):
-        return os.path.dirname(os.path.abspath(__file__))
-    
-    # Nếu chạy local
-    return r"D:\HHG\UI"
-
-BASE_DIR = get_base_dir()
-DATA_DIR = os.path.join(BASE_DIR, "data")
-TEMP_DIR = os.path.join(BASE_DIR, "temp")
-CAMPAIGNS_FILE = os.path.join(DATA_DIR, "campaigns.json")
-EXCLUDED_FILE = os.path.join(DATA_DIR, "excluded_phones.json")
-
-# Tạo thư mục nếu chưa có
-os.makedirs(DATA_DIR, exist_ok=True)
-os.makedirs(TEMP_DIR, exist_ok=True)
-
-# ===== SERVICE ACCOUNT FILE PATH (giữ cho tương thích ngược) =====
-# Lưu ý: Trên Cloud, file này sẽ không được sử dụng, thay vào đó dùng secrets
-SERVICE_ACCOUNT_FILE = os.path.join(BASE_DIR, "hhg-ads-0fecebcf627f.json") if not hasattr(st, 'secrets') else None
-PROJECT_ID = get_project_id()
 
 # ===== STANDARD COLUMNS (Các cột có thể có trong bảng) =====
 STANDARD_COLUMNS = [
