@@ -5,35 +5,39 @@ import copy
 from datetime import datetime, timedelta
 import streamlit as st
 
-# ===== GOOGLE CLOUD CONFIGURATION - HỖ TRỢ CLOUD =====
+# ===== DIRECTORY CONFIGURATION - ĐẶT LÊN ĐẦU =====
+def get_base_dir():
+    if hasattr(st, 'secrets'):
+        return os.path.dirname(os.path.abspath(__file__))
+    return r"D:\HHG\UI"
+
+BASE_DIR = get_base_dir()
+DATA_DIR = os.path.join(BASE_DIR, "data")
+TEMP_DIR = os.path.join(BASE_DIR, "temp")
+CAMPAIGNS_FILE = os.path.join(DATA_DIR, "campaigns.json")
+EXCLUDED_FILE = os.path.join(DATA_DIR, "excluded_phones.json")
+
+os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(TEMP_DIR, exist_ok=True)
+
+# ===== GOOGLE CLOUD CONFIGURATION - SAU KHI CÓ BASE_DIR =====
 def get_service_account_info():
-    """
-    Lấy service account info từ:
-    1. Streamlit secrets (khi deploy trên cloud)
-    2. File JSON (khi chạy local)
-    """
-    # Ưu tiên 1: Dùng Streamlit secrets (cho Cloud)
     if hasattr(st, 'secrets') and 'gcp_service_account' in st.secrets:
         return st.secrets['gcp_service_account']
     
-    # Ưu tiên 2: Dùng environment variable (cho local)
     service_account_file = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
     if service_account_file and os.path.exists(service_account_file):
         with open(service_account_file, 'r') as f:
             return json.load(f)
     
-    # Ưu tiên 3: Dùng file mặc định (cho local development)
-    # ✅ CÁCH ĐÚNG - dùng os.path.join
-    # default_file = os.path.join(BASE_DIR, "hhg-ads-0fecebcf627f.json")
-    # if os.path.exists(default_file):
-    #     with open(default_file, 'r') as f:
-    #         return json.load(f)
+    default_file = os.path.join(BASE_DIR, "hhg-ads-0fecebcf627f.json")
+    if os.path.exists(default_file):
+        with open(default_file, 'r') as f:
+            return json.load(f)
     
     return None
-    
 
 def get_project_id():
-    """Lấy project ID từ secrets hoặc environment variable"""
     if hasattr(st, 'secrets') and 'gcp_project_id' in st.secrets:
         return st.secrets['gcp_project_id']
     return os.getenv('GCP_PROJECT_ID', 'hhg-client')

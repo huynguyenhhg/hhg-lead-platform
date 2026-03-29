@@ -8,6 +8,7 @@ from google.oauth2 import service_account
 import streamlit as st
 from datetime import datetime, timedelta
 from config import get_service_account_info, get_project_id
+# from config import EXCLUDED_FILE
 
 # ===== BIGQUERY CONNECTION =====
 @st.cache_resource
