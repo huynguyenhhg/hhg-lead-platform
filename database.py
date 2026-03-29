@@ -7,7 +7,7 @@ from google.cloud.exceptions import NotFound
 from google.oauth2 import service_account
 import streamlit as st
 from datetime import datetime, timedelta
-from config import get_service_account_info, get_project_id, EXCLUDED_FILE
+from config import get_service_account_info, get_project_id
 
 # ===== BIGQUERY CONNECTION =====
 @st.cache_resource
