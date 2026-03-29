@@ -8,24 +8,28 @@ from google.oauth2 import service_account
 import streamlit as st
 from datetime import datetime, timedelta
 from config import get_service_account_info, get_project_id
-# from config import EXCLUDED_FILE
+import time
 
-# ===== BIGQUERY CONNECTION =====
+# ===== BIGQUERY CONNECTION WITH TIMEOUT =====
 @st.cache_resource
 def init_bigquery_client():
-    """Initialize BigQuery client using service account from secrets or file"""
+    """Initialize BigQuery client with timeout and retry"""
     try:
-        # Lấy service account info từ config
         service_account_info = get_service_account_info()
         
         if service_account_info:
-            # Trên Cloud: Tạo credentials từ dictionary
             credentials = service_account.Credentials.from_service_account_info(service_account_info)
             project_id = get_project_id()
-            client = bigquery.Client(credentials=credentials, project=project_id)
+            # Add query config with byte limit
+            client = bigquery.Client(
+                credentials=credentials, 
+                project=project_id,
+                default_query_job_config=bigquery.QueryJobConfig(
+                    maximum_bytes_billed=10**10  # 10GB limit
+                )
+            )
             return client
         else:
-            # Local: Thử dùng default credentials
             project_id = get_project_id()
             client = bigquery.Client(project=project_id)
             return client
@@ -36,36 +40,21 @@ def init_bigquery_client():
 
 # ===== PHONE NORMALIZATION =====
 def normalize_phone(phone):
-    """
-    Normalize phone number to international format with +
-    Examples:
-    0123456789 -> +84123456789
-    84123456789 -> +84123456789
-    +84123456789 -> +84123456789
-    123456789 -> +123456789
-    """
+    """Normalize phone number to international format with +"""
     if pd.isna(phone) or phone == '' or str(phone).strip() == '':
         return None
     
-    # Convert to string and remove all spaces and special characters except '+'
     phone_str = str(phone).strip()
-    
-    # Keep only digits and plus sign
     cleaned = ''.join(ch for ch in phone_str if ch.isdigit() or ch == '+')
     
-    # If no digits, return None
     if not any(ch.isdigit() for ch in cleaned):
         return None
     
-    # Extract digits
     digits = ''.join(filter(str.isdigit, cleaned))
     
-    # Check if already has +
     if cleaned.startswith('+'):
-        # Already has +, just return with + and digits
         return f"+{digits}"
     else:
-        # No +, add it
         return f"+{digits}"
 
 # ===== COLUMN DETECTION FUNCTIONS =====
@@ -80,14 +69,11 @@ def detect_phone_column(actual_columns):
     return None
 
 def detect_date_column(actual_columns, date_type='sent'):
-    """
-    Auto-detect date column from available columns
-    date_type: 'sent' for sent_date, 'source' for source date
-    """
+    """Auto-detect date column from available columns"""
     if date_type == 'sent':
         date_variants = ['sent_date', 'date_sent', 'sent_at', 'sent_on', 'date_sent',
                         'sent_time', 'sent_datetime', 'email_sent_date']
-    else:  # source date
+    else:
         date_variants = ['date', 'created_date', 'created_at', 'submitted_at', 
                         'submitted_date', 'record_date', 'event_date', 'registration_date',
                         'signup_date', 'entry_date', 'date_created', 'date_entered']
@@ -97,7 +83,7 @@ def detect_date_column(actual_columns, date_type='sent'):
             return col
     return None
 
-# ===== TABLE UTILITIES =====
+# ===== TABLE UTILITIES WITH CACHING =====
 @st.cache_data(ttl=3600)
 def get_table_columns(_client, table_name):
     """Get list of columns in a BigQuery table with caching"""
@@ -109,54 +95,46 @@ def get_table_columns(_client, table_name):
     except Exception as e:
         return []
 
-def table_exists(client, table_name):
-    """Check if a table exists in BigQuery"""
-    if not client:
+@st.cache_data(ttl=300)
+def table_exists(_client, table_name):
+    """Check if a table exists in BigQuery with caching"""
+    if not _client:
         return False
     try:
-        client.get_table(table_name)
+        _client.get_table(table_name)
         return True
     except NotFound:
         return False
     except Exception:
         return False
 
-# ===== SENT DATA FUNCTIONS =====
-def get_sent_phones(client, sent_table, phone_column=None, date_column=None):
-    """
-    Get sent phones from sent table - auto-detect columns if not specified
-    Returns dict of normalized_phone -> sent_date
-    """
-    if not client or not sent_table:
+# ===== SENT DATA FUNCTIONS WITH CACHING =====
+@st.cache_data(ttl=600)
+def get_sent_phones(_client, sent_table, phone_column=None, date_column=None):
+    """Get sent phones from sent table - with caching"""
+    if not _client or not sent_table:
         return {}
     
     try:
-        # Check if table exists
-        if not table_exists(client, sent_table):
+        if not table_exists(_client, sent_table):
             return {}
         
-        # Get actual columns
-        actual_columns = get_table_columns(client, sent_table)
+        actual_columns = get_table_columns(_client, sent_table)
         
-        # Auto-detect phone column if not specified
         if not phone_column:
             phone_column = detect_phone_column(actual_columns)
             if not phone_column:
                 return {}
         
-        # Check if phone column exists
         if phone_column not in actual_columns:
             return {}
         
-        # Auto-detect date column if not specified
         if not date_column:
             date_column = detect_date_column(actual_columns, date_type='sent')
         
-        # Check if date column exists
         if date_column and date_column not in actual_columns:
             date_column = None
         
-        # Build query
         if date_column:
             query = f"""
                 SELECT DISTINCT 
@@ -177,7 +155,7 @@ def get_sent_phones(client, sent_table, phone_column=None, date_column=None):
                 AND TRIM({phone_column}) != ''
             """
         
-        query_job = client.query(query)
+        query_job = _client.query(query)
         results = query_job.result()
         
         sent_data = {}
@@ -196,7 +174,7 @@ def get_sent_phones(client, sent_table, phone_column=None, date_column=None):
         return {}
 
 def get_sent_phones_from_campaigns(campaigns):
-    """Get sent phones from sent tables in campaigns with auto-detection"""
+    """Get sent phones from sent tables in campaigns"""
     client = init_bigquery_client()
     if not client:
         return {}
@@ -206,7 +184,6 @@ def get_sent_phones_from_campaigns(campaigns):
     for campaign in campaigns:
         sent_table = campaign.get('sent_table')
         if sent_table:
-            # Get column config from campaign (may be None for auto-detect)
             phone_column = campaign.get('sent_phone_column')
             date_column = campaign.get('sent_date_column')
             
@@ -216,9 +193,10 @@ def get_sent_phones_from_campaigns(campaigns):
     
     return all_sent_data
 
-# ===== EXCLUDED PHONES FUNCTIONS =====
+# ===== EXCLUDED PHONES FUNCTIONS WITH CACHING =====
+@st.cache_data(ttl=600)
 def get_excluded_phones_from_campaigns(previous_campaigns):
-    """Get all excluded phones from previous campaigns with auto-detection"""
+    """Get all excluded phones from previous campaigns with caching"""
     client = init_bigquery_client()
     if not client:
         return set()
@@ -236,7 +214,6 @@ def get_excluded_phones_from_campaigns(previous_campaigns):
                 
                 actual_columns = get_table_columns(client, table)
                 
-                # Auto-detect phone column if not specified
                 if not phone_col:
                     phone_col = detect_phone_column(actual_columns)
                     if not phone_col:
@@ -273,7 +250,6 @@ def get_excluded_phones_from_file(file_path):
     try:
         with open(file_path, 'r') as f:
             phones = set(json.load(f))
-            # Normalize phones from file
             return {normalize_phone(p) for p in phones if normalize_phone(p)}
     except:
         return set()
@@ -288,33 +264,30 @@ def add_to_excluded_phones(file_path, phones):
     with open(file_path, 'w') as f:
         json.dump(list(excluded), f)
 
-# ===== FETCH LEADS FUNCTIONS =====
-def fetch_leads_from_campaign_with_dates(source, requested_columns, start_date, end_date):
-    """Fetch leads from a source table with date range and auto-detect columns"""
-    client = init_bigquery_client()
-    if not client:
+# ===== FETCH LEADS FUNCTIONS WITH OPTIMIZATION =====
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_leads_from_campaign_with_dates(_client, source, requested_columns, start_date, end_date, max_records=10000):
+    """Fetch leads from a source table with date range - OPTIMIZED with caching"""
+    if not _client:
         return pd.DataFrame()
     
     table = source['table']
     phone_col = source.get('phone_column')
     date_col = source.get('date_column')
     
-    if not table_exists(client, table):
+    if not table_exists(_client, table):
         return pd.DataFrame()
     
-    actual_columns = get_table_columns(client, table)
+    actual_columns = get_table_columns(_client, table)
     
-    # Auto-detect phone column if not specified
     if not phone_col:
         phone_col = detect_phone_column(actual_columns)
         if not phone_col:
             return pd.DataFrame()
     
-    # Auto-detect date column if not specified
     if not date_col:
         date_col = detect_date_column(actual_columns, date_type='source')
     
-    # Get valid columns for display
     valid_columns = []
     for col in requested_columns:
         if col == 'source_type':
@@ -326,7 +299,6 @@ def fetch_leads_from_campaign_with_dates(source, requested_columns, start_date, 
         default_cols = ['name', 'phone_number', 'email', 'created_at']
         valid_columns = [col for col in default_cols if col in actual_columns]
     
-    # Build SELECT clause
     select_parts = []
     for col in valid_columns:
         if col == 'source_type':
@@ -336,7 +308,6 @@ def fetch_leads_from_campaign_with_dates(source, requested_columns, start_date, 
     
     select_clause = ', '.join(select_parts)
     
-    # Build WHERE clause
     where_conditions = [f"{phone_col} IS NOT NULL", f"{phone_col} != ''"]
     
     if date_col and date_col in actual_columns:
@@ -346,8 +317,6 @@ def fetch_leads_from_campaign_with_dates(source, requested_columns, start_date, 
         where_conditions.append(f"{date_col} <= '{end_date_str}'")
     
     where_clause = ' AND '.join(where_conditions)
-    
-    # Build ORDER BY clause
     order_by = date_col if date_col in actual_columns else phone_col
     
     query = f"""
@@ -355,22 +324,19 @@ def fetch_leads_from_campaign_with_dates(source, requested_columns, start_date, 
         FROM `{table}`
         WHERE {where_clause}
         ORDER BY {order_by} DESC
-        LIMIT 50000
+        LIMIT {max_records}
     """
     
     try:
-        query_job = client.query(query)
+        query_job = _client.query(query)
         results = query_job.result()
         df = pd.DataFrame([dict(row) for row in results])
         
-        # Normalize phone numbers
         if phone_col in df.columns:
             df['phone_number_normalized'] = df[phone_col].apply(normalize_phone)
-            # Also keep original phone column for display
             if 'phone_number' not in df.columns and phone_col != 'phone_number':
                 df['phone_number'] = df[phone_col]
         
-        # Add missing columns as None
         for col in requested_columns:
             if col not in df.columns and col != 'source_type':
                 df[col] = None
@@ -379,16 +345,29 @@ def fetch_leads_from_campaign_with_dates(source, requested_columns, start_date, 
     except Exception as e:
         return pd.DataFrame()
 
-def fetch_all_sources_leads_with_dates(sources, requested_columns, start_date, end_date):
-    """Fetch leads from all active sources with date range and auto-detect columns"""
-    all_dfs = []
+def fetch_all_sources_leads_with_dates(sources, requested_columns, start_date, end_date, max_records=10000):
+    """Fetch leads from all active sources with date range"""
+    client = init_bigquery_client()
+    if not client:
+        return pd.DataFrame()
     
-    for source in sources:
+    all_dfs = []
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for idx, source in enumerate(sources):
         if source.get('active', True):
-            df = fetch_leads_from_campaign_with_dates(source, requested_columns, start_date, end_date)
+            status_text.text(f"Loading {source['name']}...")
+            df = fetch_leads_from_campaign_with_dates(
+                client, source, requested_columns, start_date, end_date, max_records
+            )
             if not df.empty:
                 df['source_name'] = source['name']
                 all_dfs.append(df)
+            progress_bar.progress((idx + 1) / len(sources))
+    
+    status_text.text("✅ Loading complete!")
+    progress_bar.empty()
     
     if all_dfs:
         return pd.concat(all_dfs, ignore_index=True)
@@ -396,13 +375,11 @@ def fetch_all_sources_leads_with_dates(sources, requested_columns, start_date, e
 
 # ===== DATA VALIDATION FUNCTIONS =====
 def validate_phone(phone):
-    """Validate phone number - only check if not empty"""
     if pd.isna(phone) or phone == '' or str(phone).strip() == '':
         return False
     return True
 
 def validate_email(email):
-    """Validate email format"""
     if pd.isna(email) or email == '':
         return False
     email_str = str(email).lower()
@@ -414,7 +391,6 @@ def validate_email(email):
     return True
 
 def validate_name(name):
-    """Validate name - check for test keywords"""
     if pd.isna(name) or name == '':
         return False
     name_str = str(name).lower()
@@ -422,3 +398,14 @@ def validate_name(name):
     if any(kw in name_str for kw in test_keywords):
         return False
     return True
+
+# ===== UTILITY FUNCTIONS =====
+def clear_all_cache():
+    """Clear all cached data"""
+    st.cache_data.clear()
+    st.cache_resource.clear()
+    st.success("✅ All cache cleared!")
+
+def get_query_limit_from_session():
+    """Get max records limit from session state"""
+    return st.session_state.get('query_limit', 10000)

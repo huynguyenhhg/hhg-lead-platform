@@ -733,6 +733,7 @@ def render_campaign_manager():
                 st.rerun()
 
 # ===== LEAD EXPLORER PAGE =====
+# ===== LEAD EXPLORER PAGE =====
 def render_lead_explorer():
     st.markdown("""
         <div class="main-header">
@@ -781,6 +782,19 @@ def render_lead_explorer():
             end_date = default_end
         
         st.caption(f"📅 {start_date.strftime('%d/%m/%Y')} → {end_date.strftime('%d/%m/%Y')}")
+        
+        st.markdown("---")
+        
+        # Max Records Selection - THÊM MỚI
+        st.markdown("### 📊 Max Records")
+        max_records = st.slider(
+            "Records per source",
+            min_value=1000,
+            max_value=50000,
+            value=10000,
+            step=1000,
+            help="Limit number of records loaded from each source for better performance"
+        )
         
         st.markdown("---")
         
@@ -837,7 +851,6 @@ def render_lead_explorer():
             index=0
         )
         
-        # ===== TIẾP TỤC VỚI CÁC FILTER KHÁC =====
         st.markdown("---")
         
         # Filter Options
@@ -856,7 +869,6 @@ def render_lead_explorer():
         
         st.markdown("---")
     
-        
         with st.expander("👶 Mom Stage Filter"):
             mom_stages = [
                 "🤰 Pregnant", "👶 0-1 month", "👶 1-2 months", "👶 2-3 months", 
@@ -878,18 +890,26 @@ def render_lead_explorer():
         
         st.markdown("---")
         
-        # Load Previous Campaign Data
+        # Clear Cache Button - THÊM MỚI
+        if st.button("🗑️ Clear Cache", use_container_width=True):
+            from database import clear_all_cache
+            clear_all_cache()
+            st.success("Cache cleared! Reloading data...")
+            st.rerun()
+        
+        st.markdown("---")
+        
+        # Load Previous Campaign Data - CÓ PROGRESS INDICATOR
         with st.spinner("Loading previous campaign data..."):
             previous_phones = get_excluded_phones_from_campaigns(selected_campaign.get('previous_campaigns', []))
         
-        st.info(f"📁 Excluded: **{len(previous_phones)}** phones")
+        st.info(f"📁 Excluded: **{len(previous_phones):,}** phones")
         
-        # Load Sent Data
+        # Load Sent Data - CÓ PROGRESS INDICATOR
         with st.spinner("Loading sent campaign data..."):
             sent_data = get_sent_phones_from_campaigns([selected_campaign])
             
             if sent_data and len(sent_data) > 0:
-                # Metric card style
                 st.markdown(f"""
                     <div style="background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
                                 padding: 1rem;
@@ -907,21 +927,33 @@ def render_lead_explorer():
     
     # Main content
     st.markdown(f"### 📋 {selected_campaign['name']}")
+    st.caption(f"📅 Date range: {start_date.strftime('%d/%m/%Y')} → {end_date.strftime('%d/%m/%Y')}")
     
-    # Get leads
-    with st.spinner(f"🔄 Loading leads from {start_date.strftime('%d/%m/%Y')} to {end_date.strftime('%d/%m/%Y')}..."):
-        all_leads = fetch_all_sources_leads_with_dates(
-            selected_campaign.get('sources', []),
-            selected_campaign.get('display_columns', DISPLAY_COLUMNS),
-            start_date,
-            end_date
-        )
+    # Get leads - CÓ PROGRESS BAR
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    status_text.text("🔄 Fetching leads from BigQuery...")
+    progress_bar.progress(10)
+    
+    all_leads = fetch_all_sources_leads_with_dates(
+        selected_campaign.get('sources', []),
+        selected_campaign.get('display_columns', DISPLAY_COLUMNS),
+        start_date,
+        end_date,
+        max_records=max_records  # THÊM PARAMETER max_records
+    )
+    
+    progress_bar.progress(50)
+    status_text.text("📊 Processing data...")
     
     if not all_leads.empty:
         # Add source name
         all_leads['source'] = all_leads['source_name']
         if 'source_name' in all_leads.columns:
             all_leads = all_leads.drop(columns=['source_name'])
+        
+        progress_bar.progress(60)
         
         # Add conditions
         all_leads = add_all_conditions(
@@ -937,6 +969,8 @@ def render_lead_explorer():
             require_email=require_email,
             require_name=require_name
         )
+        
+        progress_bar.progress(70)
         
         # Apply filters
         filtered_df = all_leads.copy()
@@ -970,6 +1004,8 @@ def render_lead_explorer():
                     final_mask = final_mask | mask
             filtered_df = filtered_df[final_mask]
         
+        progress_bar.progress(80)
+        
         # Search filter
         if search_term and search_term.strip():
             search_term_lower = search_term.strip().lower()
@@ -982,81 +1018,46 @@ def render_lead_explorer():
                 mask = mask | filtered_df['phone_number'].astype(str).str.contains(search_term, na=False)
             filtered_df = filtered_df[mask]
         
+        progress_bar.progress(90)
+        
         # ===== STATISTICS =====
         st.markdown("### 📊 Performance Overview")
         
-        col1, col2, col3, col4, col5, col6, col7, col8 = st.columns(8)
+        # Use metrics in columns for better display
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.markdown(f"""
-                <div class="metric-card">
-                    <h3>📊 Total</h3>
-                    <h2>{len(filtered_df):,}</h2>
-                </div>
-            """, unsafe_allow_html=True)
+            st.metric("📊 Total Leads", f"{len(filtered_df):,}")
         
         with col2:
             valid_count = filtered_df['data_review'].sum()
-            st.markdown(f"""
-                <div class="metric-card">
-                    <h3>✅ Hold</h3>
-                    <h2>{valid_count:,}</h2>
-                </div>
-            """, unsafe_allow_html=True)
+            st.metric("✅ Hold Leads", f"{valid_count:,}", delta=f"{valid_count/len(filtered_df)*100:.1f}%" if len(filtered_df) > 0 else None)
         
         with col3:
             sent_count = filtered_df['sent_flag'].sum()
-            st.markdown(f"""
-                <div class="metric-card">
-                    <h3>📧 Sent</h3>
-                    <h2>{sent_count:,}</h2>
-                </div>
-            """, unsafe_allow_html=True)
+            st.metric("📧 Already Sent", f"{sent_count:,}")
         
         with col4:
             prev_count = filtered_df['previous_campaign'].sum()
-            st.markdown(f"""
-                <div class="metric-card">
-                    <h3>📁 Previous</h3>
-                    <h2>{prev_count:,}</h2>
-                </div>
-            """, unsafe_allow_html=True)
+            st.metric("📁 Previous Campaign", f"{prev_count:,}")
+        
+        col5, col6, col7, col8 = st.columns(4)
         
         with col5:
             duplicate_count = filtered_df['duplicate_flag'].sum()
-            st.markdown(f"""
-                <div class="metric-card">
-                    <h3>🔄 Duplicate</h3>
-                    <h2>{duplicate_count:,}</h2>
-                </div>
-            """, unsafe_allow_html=True)
+            st.metric("🔄 Duplicate", f"{duplicate_count:,}")
         
         with col6:
             invalid_email = filtered_df['check_email'].sum()
-            st.markdown(f"""
-                <div class="metric-card">
-                    <h3>📧 Invalid Email</h3>
-                    <h2>{invalid_email:,}</h2>
-                </div>
-            """, unsafe_allow_html=True)
+            st.metric("📧 Invalid Email", f"{invalid_email:,}")
         
         with col7:
             invalid_name = filtered_df['check_name'].sum()
-            st.markdown(f"""
-                <div class="metric-card">
-                    <h3>👤 Invalid Name</h3>
-                    <h2>{invalid_name:,}</h2>
-                </div>
-            """, unsafe_allow_html=True)
+            st.metric("👤 Invalid Name", f"{invalid_name:,}")
         
         with col8:
             invalid_phone = (filtered_df['check_phone'] == 0).sum()
-            st.markdown(f"""
-                <div class="metric-card">
-                    <h3>📱 Invalid Phone</h3>
-                    <h2>{invalid_phone:,}</h2>
-                </div>
-            """, unsafe_allow_html=True)
+            st.metric("📱 Invalid Phone", f"{invalid_phone:,}")
         
         # ===== CHARTS =====
         st.markdown("---")
@@ -1067,18 +1068,20 @@ def render_lead_explorer():
         with col1:
             source_counts = filtered_df['source'].value_counts().reset_index()
             source_counts.columns = ['Source', 'Count']
-            fig_source = px.bar(source_counts, x='Source', y='Count', title="Leads by Source",
-                                color='Count', color_continuous_scale='Blues', text='Count')
-            fig_source.update_traces(textposition='outside')
-            fig_source.update_layout(height=400, showlegend=False, plot_bgcolor='rgba(0,0,0,0)')
-            st.plotly_chart(fig_source, use_container_width=True)
+            if not source_counts.empty:
+                fig_source = px.bar(source_counts, x='Source', y='Count', title="Leads by Source",
+                                    color='Count', color_continuous_scale='Blues', text='Count')
+                fig_source.update_traces(textposition='outside')
+                fig_source.update_layout(height=400, showlegend=False, plot_bgcolor='rgba(0,0,0,0)')
+                st.plotly_chart(fig_source, use_container_width=True)
         
         with col2:
-            fig_pie = px.pie(source_counts, values='Count', names='Source', 
-                            title="Distribution by Source", 
-                            color_discrete_sequence=px.colors.qualitative.Set2)
-            fig_pie.update_layout(height=400)
-            st.plotly_chart(fig_pie, use_container_width=True)
+            if not source_counts.empty:
+                fig_pie = px.pie(source_counts, values='Count', names='Source', 
+                                title="Distribution by Source", 
+                                color_discrete_sequence=px.colors.qualitative.Set2)
+                fig_pie.update_layout(height=400)
+                st.plotly_chart(fig_pie, use_container_width=True)
         
         # ===== MOM STAGE DISTRIBUTION =====
         st.markdown("---")
@@ -1137,10 +1140,10 @@ def render_lead_explorer():
             breakdown_data['Required'].append('✓' if is_required else '✗')
 
         breakdown_df = pd.DataFrame(breakdown_data)
-
-        # Thêm percentage
-        breakdown_df['Pass %'] = (breakdown_df['Pass Count'] / len(filtered_df) * 100).round(1).astype(str) + '%'
-        breakdown_df['Fail %'] = (breakdown_df['Fail Count'] / len(filtered_df) * 100).round(1).astype(str) + '%'
+        
+        if len(filtered_df) > 0:
+            breakdown_df['Pass %'] = (breakdown_df['Pass Count'] / len(filtered_df) * 100).round(1).astype(str) + '%'
+            breakdown_df['Fail %'] = (breakdown_df['Fail Count'] / len(filtered_df) * 100).round(1).astype(str) + '%'
 
         st.dataframe(
             breakdown_df[['Condition', 'Pass Count', 'Pass %', 'Fail Count', 'Fail %', 'Required']],
@@ -1149,24 +1152,15 @@ def render_lead_explorer():
         )
 
         st.caption("💡 **Note:** ✓ = Required (must pass), ✗ = Optional (not required)")
-        # ===== CONDITIONS SUMMARY =====
-        st.markdown("---")
-        st.markdown("### 📋 Quality Conditions Summary")
         
-        conditions_data = {
-            'Condition': ['✅ Data Review Pass', '📧 Already Sent', '📁 Previous Campaign', 
-                         '🔄 Duplicate', '📧 Invalid Email', '👤 Invalid Name', '📱 Invalid Phone'],
-            'Count': [
-                filtered_df['data_review'].sum(),
-                filtered_df['sent_flag'].sum(),
-                filtered_df['previous_campaign'].sum(),
-                filtered_df['duplicate_flag'].sum(),
-                filtered_df['check_email'].sum(),
-                filtered_df['check_name'].sum(),
-                (filtered_df['check_phone'] == 0).sum()
-            ]
-        }
-        st.dataframe(pd.DataFrame(conditions_data), use_container_width=True, hide_index=True)
+        progress_bar.progress(100)
+        status_text.text("✅ Loading complete!")
+        
+        # Clear progress indicators after 2 seconds
+        import time
+        time.sleep(1)
+        progress_bar.empty()
+        status_text.empty()
         
         # ===== LEADS TABLE =====
         st.markdown("---")
@@ -1232,7 +1226,6 @@ def render_lead_explorer():
             display_df['sent_date'] = display_df['sent_date'].fillna('')
             
             def safe_format_date(x):
-                """Safely format date to YYYY-MM-DD"""
                 if x == '' or pd.isna(x):
                     return ''
                 try:
@@ -1323,33 +1316,44 @@ def render_lead_explorer():
             with col1:
                 if st.button("📥 Export Selected to Excel", use_container_width=True):
                     filename = f"leads_{selected_campaign['id']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-                    selected.to_excel(filename, index=False)
+                    # Remove Select column if exists
+                    export_df = selected.drop(columns=['Select'], errors='ignore')
+                    export_df.to_excel(filename, index=False)
                     with open(filename, "rb") as f:
-                        st.download_button("📥 Download Excel", data=f, file_name=filename)
+                        st.download_button("📥 Download Excel", data=f, file_name=filename, use_container_width=True)
             
             with col2:
                 if st.button("🚫 Mark as Sent", use_container_width=True):
                     phone_col = 'Phone' if 'Phone' in selected.columns else 'phone_number'
-                    new_phones = selected[phone_col].astype(str).tolist()
-                    
-                    excluded = set()
-                    if os.path.exists(EXCLUDED_FILE):
-                        with open(EXCLUDED_FILE, 'r') as f:
-                            try:
-                                excluded = set(json.load(f))
-                            except:
-                                excluded = set()
-                    
-                    excluded.update(new_phones)
-                    with open(EXCLUDED_FILE, 'w') as f:
-                        json.dump(list(excluded), f)
-                    
-                    st.success(f"✅ Marked {len(new_phones)} leads as sent")
-                    st.rerun()
+                    if phone_col in selected.columns:
+                        new_phones = selected[phone_col].astype(str).tolist()
+                        
+                        excluded = set()
+                        if os.path.exists(EXCLUDED_FILE):
+                            with open(EXCLUDED_FILE, 'r') as f:
+                                try:
+                                    excluded = set(json.load(f))
+                                except:
+                                    excluded = set()
+                        
+                        excluded.update(new_phones)
+                        with open(EXCLUDED_FILE, 'w') as f:
+                            json.dump(list(excluded), f)
+                        
+                        st.success(f"✅ Marked {len(new_phones)} leads as sent")
+                        # Clear cache and reload
+                        from database import clear_all_cache
+                        clear_all_cache()
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("Phone column not found in selected leads")
         else:
             st.info("💡 Select leads using the checkboxes above")
     else:
         st.info(f"ℹ️ No leads found from {start_date.strftime('%d/%m/%Y')} to {end_date.strftime('%d/%m/%Y')}")
+        progress_bar.empty()
+        status_text.empty()
 # ===== MAIN APP =====
 with st.sidebar:
     selected = option_menu(

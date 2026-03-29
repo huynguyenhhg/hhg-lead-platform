@@ -29,22 +29,18 @@ def get_service_account_info():
     default_file = os.path.join(BASE_DIR, "hhg-ads-0fecebcf627f.json")
     if os.path.exists(default_file):
         with open(default_file, 'r') as f:
-            st.toast("📁 Loading credentials from local file (cached after first load)")
             return json.load(f)
     
     # Priority 2: Streamlit secrets
     if hasattr(st, 'secrets') and 'gcp_service_account' in st.secrets:
-        st.toast("🔐 Loading credentials from Streamlit secrets (cached)")
         return st.secrets['gcp_service_account']
     
     # Priority 3: GOOGLE_APPLICATION_CREDENTIALS env var
     service_account_file = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
     if service_account_file and os.path.exists(service_account_file):
         with open(service_account_file, 'r') as f:
-            st.toast(f"📄 Loading credentials from {service_account_file} (cached)")
             return json.load(f)
     
-    st.error("⚠️ No credentials found!")
     return None
 
 def get_project_id():
@@ -96,7 +92,6 @@ SOURCE_DATE_COLUMN_VARIANTS = [
 ]
 
 # ===== DEFAULT CAMPAIGN CONFIGURATION =====
-# Lưu ý: Có thể bỏ qua phone_column và date_column để auto-detect
 DEFAULT_CAMPAIGNS = [
     {
         "id": "dugro_kh_2026",
@@ -180,7 +175,6 @@ def load_campaigns():
         try:
             with open(CAMPAIGNS_FILE, 'r', encoding='utf-8') as f:
                 campaigns = json.load(f)
-                # Ensure each campaign has required fields
                 for campaign in campaigns:
                     if 'display_columns' not in campaign:
                         campaign['display_columns'] = DISPLAY_COLUMNS
@@ -188,19 +182,17 @@ def load_campaigns():
                         campaign['previous_campaigns'] = []
                     if 'sources' not in campaign:
                         campaign['sources'] = []
-                    # Add sent table fields if missing
                     if 'sent_table' not in campaign:
                         campaign['sent_table'] = None
                     if 'sent_phone_column' not in campaign:
-                        campaign['sent_phone_column'] = None  # None = auto-detect
+                        campaign['sent_phone_column'] = None
                     if 'sent_date_column' not in campaign:
-                        campaign['sent_date_column'] = None  # None = auto-detect
-                    # Ensure sources have column config
+                        campaign['sent_date_column'] = None
                     for source in campaign.get('sources', []):
                         if 'phone_column' not in source:
-                            source['phone_column'] = None  # None = auto-detect
+                            source['phone_column'] = None
                         if 'date_column' not in source:
-                            source['date_column'] = None  # None = auto-detect
+                            source['date_column'] = None
                 return campaigns
         except Exception as e:
             st.warning(f"Error loading campaigns, using defaults: {e}")
@@ -213,12 +205,10 @@ def save_campaigns(campaigns):
         json.dump(campaigns, f, indent=2, ensure_ascii=False)
 
 def get_active_campaigns():
-    """Get only active campaigns"""
     campaigns = load_campaigns()
     return [c for c in campaigns if c.get('active', True)]
 
 def get_campaign_by_id(campaign_id):
-    """Get campaign by ID"""
     campaigns = load_campaigns()
     for c in campaigns:
         if c['id'] == campaign_id:
@@ -226,16 +216,13 @@ def get_campaign_by_id(campaign_id):
     return None
 
 def add_campaign(campaign):
-    """Add new campaign"""
     campaigns = load_campaigns()
-    # Ensure sent table fields exist
     if 'sent_table' not in campaign:
         campaign['sent_table'] = None
     if 'sent_phone_column' not in campaign:
-        campaign['sent_phone_column'] = None  # None = auto-detect
+        campaign['sent_phone_column'] = None
     if 'sent_date_column' not in campaign:
-        campaign['sent_date_column'] = None  # None = auto-detect
-    # Ensure sources have column config
+        campaign['sent_date_column'] = None
     for source in campaign.get('sources', []):
         if 'phone_column' not in source:
             source['phone_column'] = None
@@ -245,7 +232,6 @@ def add_campaign(campaign):
     save_campaigns(campaigns)
 
 def update_campaign(campaign_id, updates):
-    """Update existing campaign"""
     campaigns = load_campaigns()
     for i, c in enumerate(campaigns):
         if c['id'] == campaign_id:
@@ -254,20 +240,17 @@ def update_campaign(campaign_id, updates):
     save_campaigns(campaigns)
 
 def delete_campaign(campaign_id):
-    """Delete campaign"""
     campaigns = load_campaigns()
     campaigns = [c for c in campaigns if c['id'] != campaign_id]
     save_campaigns(campaigns)
 
 def duplicate_campaign(campaign_id, new_id, new_name):
-    """Duplicate an existing campaign with new ID and name"""
     campaigns = load_campaigns()
     original = get_campaign_by_id(campaign_id)
     if original:
         new_campaign = copy.deepcopy(original)
         new_campaign['id'] = new_id
         new_campaign['name'] = new_name
-        # Update source IDs
         for source in new_campaign.get('sources', []):
             source['id'] = generate_source_id(new_id, source['name'])
         campaigns.append(new_campaign)
@@ -275,15 +258,12 @@ def duplicate_campaign(campaign_id, new_id, new_name):
         return True
     return False
 
-# ===== SOURCE MANAGEMENT FUNCTIONS =====
 def add_source_to_campaign(campaign_id, source):
-    """Add a new source to campaign"""
     campaigns = load_campaigns()
     for i, c in enumerate(campaigns):
         if c['id'] == campaign_id:
             if 'sources' not in campaigns[i]:
                 campaigns[i]['sources'] = []
-            # Ensure column config
             if 'phone_column' not in source:
                 source['phone_column'] = None
             if 'date_column' not in source:
@@ -293,7 +273,6 @@ def add_source_to_campaign(campaign_id, source):
     save_campaigns(campaigns)
 
 def delete_source_from_campaign(campaign_id, source_id):
-    """Delete a source from campaign"""
     campaigns = load_campaigns()
     for i, c in enumerate(campaigns):
         if c['id'] == campaign_id:
@@ -302,7 +281,6 @@ def delete_source_from_campaign(campaign_id, source_id):
     save_campaigns(campaigns)
 
 def toggle_source_active(campaign_id, source_id):
-    """Toggle source active status"""
     campaigns = load_campaigns()
     for i, c in enumerate(campaigns):
         if c['id'] == campaign_id:
@@ -314,7 +292,6 @@ def toggle_source_active(campaign_id, source_id):
     save_campaigns(campaigns)
 
 def update_source_in_campaign(campaign_id, source_id, updates):
-    """Update an existing source in campaign"""
     campaigns = load_campaigns()
     for i, c in enumerate(campaigns):
         if c['id'] == campaign_id:
@@ -326,19 +303,15 @@ def update_source_in_campaign(campaign_id, source_id, updates):
     save_campaigns(campaigns)
 
 def get_sources_by_campaign(campaign_id):
-    """Get all sources for a campaign"""
     campaign = get_campaign_by_id(campaign_id)
     return campaign.get('sources', []) if campaign else []
 
-# ===== PREVIOUS CAMPAIGN MANAGEMENT FUNCTIONS =====
 def add_previous_campaign_to_campaign(campaign_id, prev_campaign):
-    """Add a previous campaign to exclude"""
     campaigns = load_campaigns()
     for i, c in enumerate(campaigns):
         if c['id'] == campaign_id:
             if 'previous_campaigns' not in campaigns[i]:
                 campaigns[i]['previous_campaigns'] = []
-            # Ensure column config
             if 'phone_column' not in prev_campaign:
                 prev_campaign['phone_column'] = None
             campaigns[i]['previous_campaigns'].append(prev_campaign)
@@ -346,7 +319,6 @@ def add_previous_campaign_to_campaign(campaign_id, prev_campaign):
     save_campaigns(campaigns)
 
 def delete_previous_campaign_from_campaign(campaign_id, prev_id):
-    """Delete previous campaign"""
     campaigns = load_campaigns()
     for i, c in enumerate(campaigns):
         if c['id'] == campaign_id:
@@ -358,7 +330,6 @@ def delete_previous_campaign_from_campaign(campaign_id, prev_id):
     save_campaigns(campaigns)
 
 def toggle_previous_campaign_exclude(campaign_id, prev_id):
-    """Toggle previous campaign exclude status"""
     campaigns = load_campaigns()
     for i, c in enumerate(campaigns):
         if c['id'] == campaign_id:
@@ -370,7 +341,6 @@ def toggle_previous_campaign_exclude(campaign_id, prev_id):
     save_campaigns(campaigns)
 
 def update_previous_campaign_in_campaign(campaign_id, prev_id, updates):
-    """Update previous campaign"""
     campaigns = load_campaigns()
     for i, c in enumerate(campaigns):
         if c['id'] == campaign_id:
@@ -382,13 +352,10 @@ def update_previous_campaign_in_campaign(campaign_id, prev_id, updates):
     save_campaigns(campaigns)
 
 def get_previous_campaigns_by_campaign(campaign_id):
-    """Get all previous campaigns for a campaign"""
     campaign = get_campaign_by_id(campaign_id)
     return campaign.get('previous_campaigns', []) if campaign else []
 
-# ===== SENT TABLE MANAGEMENT FUNCTIONS =====
 def update_sent_table_config(campaign_id, sent_table, sent_phone_column=None, sent_date_column=None):
-    """Update sent table configuration for a campaign (None = auto-detect)"""
     campaigns = load_campaigns()
     for i, c in enumerate(campaigns):
         if c['id'] == campaign_id:
@@ -399,7 +366,6 @@ def update_sent_table_config(campaign_id, sent_table, sent_phone_column=None, se
     save_campaigns(campaigns)
 
 def get_sent_table_config(campaign_id):
-    """Get sent table configuration for a campaign"""
     campaign = get_campaign_by_id(campaign_id)
     if campaign:
         return {
@@ -410,12 +376,9 @@ def get_sent_table_config(campaign_id):
     return None
 
 def clear_sent_table(campaign_id):
-    """Clear sent table configuration"""
     update_sent_table_config(campaign_id, None, None, None)
 
-# ===== COLUMN MANAGEMENT FUNCTIONS =====
 def update_campaign_columns(campaign_id, columns):
-    """Update display columns for campaign"""
     campaigns = load_campaigns()
     for i, c in enumerate(campaigns):
         if c['id'] == campaign_id:
@@ -424,7 +387,6 @@ def update_campaign_columns(campaign_id, columns):
     save_campaigns(campaigns)
 
 def add_column_to_campaign(campaign_id, column):
-    """Add a column to display"""
     campaigns = load_campaigns()
     for i, c in enumerate(campaigns):
         if c['id'] == campaign_id:
@@ -434,7 +396,6 @@ def add_column_to_campaign(campaign_id, column):
     save_campaigns(campaigns)
 
 def remove_column_from_campaign(campaign_id, column):
-    """Remove a column from display"""
     campaigns = load_campaigns()
     for i, c in enumerate(campaigns):
         if c['id'] == campaign_id:
@@ -444,36 +405,28 @@ def remove_column_from_campaign(campaign_id, column):
     save_campaigns(campaigns)
 
 def get_campaign_columns(campaign_id):
-    """Get display columns for a campaign"""
     campaign = get_campaign_by_id(campaign_id)
     return campaign.get('display_columns', DISPLAY_COLUMNS) if campaign else DISPLAY_COLUMNS
 
 def reset_campaign_columns(campaign_id):
-    """Reset display columns to default"""
     update_campaign_columns(campaign_id, DISPLAY_COLUMNS)
 
-# ===== HELPER FUNCTIONS =====
 def get_all_available_columns():
-    """Get all available columns"""
     return STANDARD_COLUMNS
 
 def get_source_types():
-    """Get available source types"""
     return ["Ladipage", "Facebook", "Website", "Google Ads", "TikTok", "Other"]
 
 def generate_source_id(campaign_id, source_name):
-    """Generate unique source ID"""
     import re
     base_id = f"{campaign_id}_{re.sub(r'[^a-zA-Z0-9]', '_', source_name.lower())}"
     return base_id
 
 def get_all_campaign_names():
-    """Get list of all campaign names"""
     campaigns = load_campaigns()
     return [c['name'] for c in campaigns]
 
 def get_campaign_stats():
-    """Get statistics about campaigns"""
     campaigns = load_campaigns()
     total = len(campaigns)
     active = len([c for c in campaigns if c.get('active', True)])
@@ -489,18 +442,15 @@ def get_campaign_stats():
         'total_previous_campaigns': total_prev
     }
 
-# ===== COLUMN DETECTION HELPER (cho các function khác) =====
 def get_phone_column_variants():
-    """Get list of phone column name variants"""
     return PHONE_COLUMN_VARIANTS
 
 def get_sent_date_variants():
-    """Get list of sent date column name variants"""
     return SENT_DATE_COLUMN_VARIANTS
 
 def get_source_date_variants():
-    """Get list of source date column name variants"""
     return SOURCE_DATE_COLUMN_VARIANTS
+
 __all__ = [
     'EXCLUDED_FILE',
     'CAMPAIGNS_FILE',
